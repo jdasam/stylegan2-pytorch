@@ -1,0 +1,3 @@
+[submodule "Music_DeepEmbedding_Extractor"]
+	path = Music_DeepEmbedding_Extractor
+	url = https://github.com/Dohppak/Music_DeepEmbedding_Extractor.git
