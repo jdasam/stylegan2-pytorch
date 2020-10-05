@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from torch.autograd import Function
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
+from tqdm import tqdm
 
 
 class PixelNorm(nn.Module):
@@ -381,10 +382,15 @@ class Generator(nn.Module):
 
         layers = [PixelNorm()]
 
-        for i in range(n_mlp):
+        layers.append(
+                EqualLinear(
+                    style_dim*2, style_dim , lr_mul=lr_mlp, activation='fused_lrelu'
+                )
+            )
+        for i in range(1, n_mlp):
             layers.append(
                 EqualLinear(
-                    style_dim, style_dim, lr_mul=lr_mlp, activation='fused_lrelu'
+                    style_dim, style_dim , lr_mul=lr_mlp, activation='fused_lrelu'
                 )
             )
 
@@ -462,7 +468,7 @@ class Generator(nn.Module):
 
     def mean_latent(self, n_latent):
         latent_in = torch.randn(
-            n_latent, self.style_dim, device=self.input.input.device
+            n_latent, self.style_dim * 2, device=self.input.input.device
         )
         latent = self.style(latent_in).mean(0, keepdim=True)
 
@@ -481,16 +487,24 @@ class Generator(nn.Module):
         input_is_latent=False,
         noise=None,
         randomize_noise=True,
+        to_uint8=True,
+        interpolate_styles=False,
+        num_interpol=86,
+        img_per_batch=20,
+        to_cpu=False
+
     ):
         if not input_is_latent:
             styles = [self.style(s) for s in styles]
-
+        # styles = interpolate_style(styles[0][0], styles[0][-1])
+        if interpolate_styles:
+            styles = [interpolate_style_sequence(styles[0], num_interpol=num_interpol)]
         if noise is None:
             if randomize_noise:
                 noise = [None] * self.num_layers
             else:
                 noise = [
-                    getattr(self.noises, f'noise_{i}') for i in range(self.num_layers)
+                    getattr(self.noises, f'noise_{i}').to(styles[0].device) for i in range(self.num_layers)
                 ]
 
         if truncation < 1:
@@ -520,26 +534,38 @@ class Generator(nn.Module):
             latent2 = styles[1].unsqueeze(1).repeat(1, self.n_latent - inject_index, 1)
 
             latent = torch.cat([latent, latent2], 1)
+        # latent = cross_generation(latent[0], latent[-1])
+        total_latent = latent.clone()
+        num_batch = math.ceil(total_latent.shape[0] / img_per_batch)
+        image = []
+        for i in tqdm(range(num_batch)):
+            latent = total_latent[i*img_per_batch:(i+1)*img_per_batch]
+            out = self.input(latent)
+            out = self.conv1(out, latent[:, 0], noise=noise[0])
 
-        out = self.input(latent)
-        out = self.conv1(out, latent[:, 0], noise=noise[0])
+            skip = self.to_rgb1(out, latent[:, 1])
 
-        skip = self.to_rgb1(out, latent[:, 1])
+            i = 1
+            for conv1, conv2, noise1, noise2, to_rgb in zip(
+                self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
+            ):
+                out = conv1(out, latent[:, i], noise=noise1)
+                out = conv2(out, latent[:, i + 1], noise=noise2)
+                skip = to_rgb(out, latent[:, i + 2], skip)
 
-        i = 1
-        for conv1, conv2, noise1, noise2, to_rgb in zip(
-            self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
-        ):
-            out = conv1(out, latent[:, i], noise=noise1)
-            out = conv2(out, latent[:, i + 1], noise=noise2)
-            skip = to_rgb(out, latent[:, i + 2], skip)
+                i += 2
 
-            i += 2
-
-        image = skip
-
+            # image = skip
+            if to_uint8:
+                skip = torch.as_tensor(skip.add_(0.5).mul_(255).clamp_(0, 255).permute(0, 2, 3, 1), dtype=torch.uint8)
+            if to_cpu:
+                skip=skip.cpu()
+            
+            image.append(skip)
+        
+        image = torch.cat(image)
         if return_latents:
-            return image, latent
+            return image, total_latent
 
         else:
             return image, None
@@ -675,3 +701,52 @@ class Discriminator(nn.Module):
 
         return out
 
+def interpolate_style(a_style, b_style, num_interpol=120):
+    diff = b_style - a_style
+    new_samples = torch.zeros((num_interpol+2, a_style.shape[0]),device=a_style.device)
+    for i in range(1,num_interpol+1):
+        new_samples[i,:] = a_style + i * diff/num_interpol
+    new_samples[0,:] = a_style
+    new_samples[-1,:] = b_style
+    return [new_samples]
+
+def interpolate_style_sequence(styles, num_interpol=10):
+    new_styles = styles.unsqueeze(1).repeat(1,num_interpol,1)
+    diff = styles[1:] - styles[:-1]
+    diff = diff.unsqueeze(1).repeat(1,num_interpol,1)
+    weight = torch.Tensor(list(range(0,num_interpol))).unsqueeze(0).unsqueeze(-1).repeat(diff.shape[0],1,diff.shape[-1]).to(styles.device) / num_interpol
+    new_styles[:-1] += diff * weight
+    new_styles = new_styles.view(-1, new_styles.shape[-1])
+    new_styles = new_styles[:-num_interpol+1]
+    return new_styles
+
+# def cross_generation(a_style, b_style, num_dim=9):
+#     # input: latent style code for each layer, B X N X D (batch, number of layers, dimension)
+#     new_samples = torch.zeros((num_dim+2, a_style.shape[0], a_style.shape[1]),device=a_style.device)
+#     new_samples[0,:] = a_style
+#     for i in range(num_dim):
+#         new_samples[i+1,:] = a_style
+#         new_samples[i+1,i*2:i*2+2,:] = b_style[i*2:i*2+2,:]
+#     new_samples[-1,:] = b_style
+
+#     return new_samples
+
+def cross_generation(a_style, b_style):
+    # input: latent style code for each layer, B X N X D (batch, number of layers, dimension)
+    new_samples = torch.zeros((4, a_style.shape[0], a_style.shape[1]),device=a_style.device)
+    new_samples[0,:] = a_style
+    # new_samples[1] = a_style
+    # new_samples[2] = a_style
+    # new_samples[3] = a_style
+
+    # new_samples[1,12:] = b_style[12:]
+    # new_samples[1,6:12] = b_style[6:12]
+    # new_samples[1,:6] = b_style[:6]
+    new_samples[1,:10] = a_style[:10]
+    new_samples[1,10:] = b_style[10:]
+    new_samples[2,:10] = b_style[:10]
+    new_samples[2,10:] = a_style[10:]
+
+    new_samples[3,:] = b_style
+
+    return new_samples
