@@ -15,11 +15,19 @@ class ConvNorm(nn.Module):
     def forward(self, x):
         return self.conv_norm(x)
 
+class HParams:
+    def __init__(self):
+        self.conv_size = 128
+        self.out_size = 512
+        self.kernel_size = 5
+        self.drop_out = 0.2
+        self.average_pool = True
 
 
 class DeepCNN(nn.Module):
     def __init__(self, hparams):
         super(DeepCNN, self).__init__()
+        self.out_size = hparams.out_size
         padding_size = int((hparams.kernel_size-1)/2)
         self.conv_module = nn.Sequential(
             ConvNorm(48, hparams.conv_size, hparams.kernel_size, padding_size),
@@ -73,6 +81,7 @@ class SiameseNet(nn.Module):
     def __init__(self, hparams):
         super(SiameseNet, self).__init__()
         self.cnn = DeepCNN(hparams)
+        self.out_size = hparams.out_size
         # self.similarity_fn = torch.nn.CosineSimilarity(1, eps=1e-6)
 
     def forward(self, anchor, positive_sample, negative_sample):
@@ -96,10 +105,12 @@ class SiameseNet(nn.Module):
         return self.inference(torch.Tensor(mel).to('cuda'))
 
 class TransferNet(nn.Module):
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, in_dim, out_dim, neck_dim=100):
         super(TransferNet, self).__init__()
         self.transfer = nn.Sequential(
-            nn.Linear(in_dim, out_dim)
+            # nn.Linear(in_dim, out_dim),
+            nn.Linear(in_dim, neck_dim),
+            nn.Linear(neck_dim, out_dim)
         )
     def forward(self, audio_embedding):
-        return self.transfer(audio_embedding) / 20
+        return self.transfer(audio_embedding)
