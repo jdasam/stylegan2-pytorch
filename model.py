@@ -491,7 +491,10 @@ class Generator(nn.Module):
         interpolate_styles=False,
         num_interpol=86,
         img_per_batch=20,
-        to_cpu=False
+        to_cpu=False,
+        coarse_window_length = 61,
+        middle_window_length = 35,
+        smoothing=False,
 
     ):
         if not input_is_latent:
@@ -535,6 +538,8 @@ class Generator(nn.Module):
 
             latent = torch.cat([latent, latent2], 1)
         # latent = cross_generation(latent[0], latent[-1])
+        if smoothing:
+            latent = hierarchical_smoothing(latent, cw=coarse_window_length, mw=middle_window_length)
         total_latent = latent.clone()
         num_batch = math.ceil(total_latent.shape[0] / img_per_batch)
         image = []
@@ -750,3 +755,19 @@ def cross_generation(a_style, b_style):
     new_samples[3,:] = b_style
 
     return new_samples
+
+def hierarchical_smoothing(latent, cw=75, mw=45):
+    coarse_weight = torch.eye(latent.shape[2]).unsqueeze(-1).repeat(1,1,cw).to('cuda') / cw
+    middle_weight = torch.eye(latent.shape[2]).unsqueeze(-1).repeat(1,1,mw).to('cuda') / mw
+    
+    coarse_input = latent[:,0:6,:].permute(1,2,0)
+    coarse_input = torch.nn.functional.pad(coarse_input, (cw//2, cw//2), mode='reflect')
+
+    middle_input = latent[:,6:12,:].permute(1,2,0)
+    middle_input = torch.nn.functional.pad(middle_input, (mw//2, mw//2), mode='reflect')
+
+    coarse = torch.nn.functional.conv1d(coarse_input, coarse_weight, bias=None, stride=1)
+    middle = torch.nn.functional.conv1d(middle_input, middle_weight, bias=None, stride=1)
+    latent[:,0:6,:] = coarse.permute(2,0,1)
+    latent[:,6:12,:] = middle.permute(2,0,1)
+    return latent
