@@ -3,22 +3,50 @@ import pickle
 import argparse
 import numpy as np
 import librosa
-from audio_model import SiameseNet, TransferNet
+from audio_model import SiameseNet, TransferNet, HParams
+from Music_DeepEmbedding_Extractor import extractor
 
 
 def load_audio_model(args):
-    with open("hparams.dat", "rb") as f:
-        hparams = pickle.load(f)
+    
+    # with open("hparams.dat", "rb") as f:
+    #     hparams = pickle.load(f)
+    hparams = HParams()
     audio_embedder = SiameseNet(hparams)
     audio_checkpoint = torch.load(args.ckpt)
     audio_embedder.load_state_dict(audio_checkpoint["state_dict"])
     return audio_embedder
 
+def load_audio_model_and_get_embedding(audio, model_types):
+    # audio_length = audio.shape[1]
+    input_length, model, checkpoint_path = extractor.load_model(model_types)
+    # audio = extractor.make_frames_of_batch(audio, input_length, target_fps=1/3)[:,1,:]
+    audio = extractor.make_frames_of_batch(audio, input_length, target_fps=0.5).view(-1, input_length)
+    # audio = extractor.make_audio_batch(audio, input_length)
 
+    state_dict = torch.load("Music_DeepEmbedding_Extractor/"+checkpoint_path, map_location=torch.device('cpu'))
+
+    new_state_map = {model_key: model_key.split("model.")[1] for model_key in state_dict.get("state_dict").keys()}
+    new_state_dict = {new_state_map[key]: value for (key, value) in state_dict.get("state_dict").items() if key in new_state_map.keys()}
+    model.load_state_dict(new_state_dict)
+    
+    audio = audio.to('cuda')
+    model = model.to('cuda')
+
+    with torch.no_grad():
+        model.eval() 
+        embeddings = model.get_emb(audio)
+    return embeddings
 
 def train(args, device):
-    audio_embedder = load_audio_model(args).to(device)
-    model = TransferNet(100, 512).to(device)
+    if "siamese" in args.model_code:
+        audio_embedder = load_audio_model(args).to(device)
+        embd_size = audio_embedder.out_size
+    elif "FCN037" in args.model_code:
+        embd_size = 512
+    else:
+        embd_size = 64
+    model = TransferNet(embd_size, args.style_dim).to(device)
     learning_rate = args.learning_rate
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                  weight_decay=args.weight_decay)
@@ -27,15 +55,30 @@ def train(args, device):
     # embs = [audio_embedder.inference_with_audio(x['audio'])[0] for x in data]
     styles = [x['style'] for x in data]
     audios = [librosa.core.resample(x['audio'], 44100, 16000) for x in data]
-    mels = [librosa.feature.melspectrogram(y=x, sr=16000, n_fft=512, hop_length=256, n_mels=48) for x in audios]
-    mels = torch.Tensor(mels).to(device)
-    
-    audio_embedder.eval()
-    with torch.no_grad():
-        embs = audio_embedder.cnn.fwd_wo_pool(mels)
+    # mels = [librosa.feature.melspectrogram(y=x, sr=16000, n_fft=512, hop_length=256, n_mels=48) for x in audios]
+    # mels = torch.Tensor(mels).to(device)
+    # audio_embedder = load_audio_model(args).to(device)
+    # audio_embedder.eval()
+    # with torch.no_grad():
+    #     embs = audio_embedder.cnn.fwd_wo_pool(mels)
     # audios =torch.Tensor([librosa.core.resample(x['audio'], 44100, 16000) for x in data])
     # embs = torch.Tensor(embs).to(device)
+    
+    if "siamese" in args.model_code:
+        mels = [librosa.feature.melspectrogram(y=x, sr=16000, n_fft=512, hop_length=256, n_mels=48) for x in audios]
+        mels = torch.Tensor(mels).to(device)
+        # audio_embedder = load_audio_model(args).to(device)
+        audio_embedder.eval()
+        with torch.no_grad():
+            embs = audio_embedder.cnn.fwd_wo_pool(mels)
+        # embs = torch.Tensor(embs).to(device)
+    else:
+        audios = torch.Tensor(audios)
+        embs = load_audio_model_and_get_embedding(audios, model_types=args.model_code).to(device)
+        embs = embs.view(audios.shape[0], -1, embs.shape[-1])
+
     styles = torch.Tensor(styles).to(device).unsqueeze(1).repeat(1,embs.shape[1],1)
+
 
     model.train()
     for i in range(args.epoch):
@@ -43,13 +86,13 @@ def train(args, device):
         transfer_style = model(embs)
         loss = loss_fn(transfer_style, styles)
         loss.backward()
-        print('Loss value is {}'.format(loss.item()))
+        print('Step {}: Loss value is {}'.format(i, loss.item()))
         optimizer.step()
 
     torch.save({'iteration': i,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'learning_rate': learning_rate}, 'transfer.pt')
+            'learning_rate': learning_rate}, 'transfer_{}_it{}_lr{}.pt'.format(args.model_code, args.epoch, args.learning_rate))
     
     
 
@@ -59,10 +102,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Generate samples from the generator")
     parser.add_argument("--style_dim",type=int, default=512,help="style_dim",)
-    parser.add_argument("--epoch",type=int, default=300,help="num training epochs")
-    parser.add_argument("--learning_rate",type=float, default=1e-3)
+    parser.add_argument("--epoch",type=int, default=30000,help="num training epochs")
+    parser.add_argument("--learning_rate",type=float, default=1e-5)
     parser.add_argument("--weight_decay",type=float, default=1e-6)
-
+    parser.add_argument("--model_code",type=str,
+                            # default="artist_siamese")
+                             default="FCN037")
     parser.add_argument(
         "--ckpt",
         type=str,
@@ -75,6 +120,6 @@ if __name__ == "__main__":
         default="label_data.npy",
         help="label pair path",
     )
-
+    # torch.cuda.set_device(1)
     args = parser.parse_args()
     train(args, device)

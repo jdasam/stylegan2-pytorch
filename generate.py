@@ -4,7 +4,7 @@ from os import write
 import torch
 from torchvision import utils
 from model import Generator
-from audio_model import SiameseNet, TransferNet
+from audio_model import SiameseNet, TransferNet, HParams
 from tqdm import tqdm
 import av
 import pickle
@@ -12,6 +12,9 @@ from pydub import AudioSegment
 import librosa
 import numpy as np
 import subprocess
+import math
+from Music_DeepEmbedding_Extractor import extractor
+from pathlib import Path
 
 # from mhmovie.code import movie, music
 
@@ -66,21 +69,52 @@ def write_video(filename, video_array, fps, bitrate, video_codec='libx264', opti
     container.close()
 
 
-def get_embedding_from_audio(path, model):
-    song = AudioSegment.from_file(path, 'm4a').set_frame_rate(16000).set_channels(1)._data
-    decoded = np.frombuffer(song, dtype=np.int16) / 32768
+def get_embedding_from_audio(path, model, target_fps=3):
+    file_format = path[-3:]
+    if file_format == 'aac':
+        file_format = 'm4a'
+    song = AudioSegment.from_file(path, file_format).set_frame_rate(16000).set_channels(1)._data
+    audio = np.frombuffer(song, dtype=np.int16) / 32768
+    
+
+    view_size = 130304
+    audio_batch_size = 100
+    dummy = torch.zeros((1, audio.shape[1] + view_size *2))
+    dummy[:,view_size//2:view_size//2+audio.shape[1]] = audio
+    audio = dummy
+    num_frame = math.ceil(audio.shape[1]/ 16000 * target_fps)
+    num_batch = math.ceil(num_frame / audio_batch_size)
+
+    model = model.to('cuda')
+    model.eval() 
+    total_embeddings = []
+    with torch.no_grad():
+        
+    # _, embeddings = model(audio_input)
+        for batch_i in range(num_batch):
+            start_idx = int(batch_i * audio_batch_size * 16000/target_fps)
+            if batch_i == num_batch -1:
+                num_segments = num_frame % audio_batch_size
+            else:
+                num_segments = audio_batch_size
+            batch_audio = torch.stack([audio[0,start_idx+int(i*16000/target_fps):start_idx+int(i*16000/target_fps)+view_size ] for i in range(num_segments) ])
+            # mel = torchaudio.
+            embeddings = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda'))
+            total_embeddings.append(embeddings[:,0,:])
+
     mel = librosa.feature.melspectrogram(y=decoded, sr=16000, n_fft=512, hop_length=256, n_mels=48)
+
     with torch.no_grad():
         model.eval()
-        embedd = model.cnn.fwd_wo_pool(torch.Tensor(mel).unsqueeze(0))
+        embedd = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda').unsqueeze(0))
     return embedd
 
 
-def generate(args, g_ema, device, mean_latent, audio_embd, audio_path):
+def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
 
     with torch.no_grad():
         g_ema.eval()
-        for i in tqdm(range(args.pics)):
+        # for i in tqdm(range(args.pics)):
             # sample_z = torch.randn(args.sample, args.latent * 2, device=device)
             # sample_z = interpolate(sample_z, num_interpol=8)
             # sample, _ = g_ema(
@@ -94,18 +128,22 @@ def generate(args, g_ema, device, mean_latent, audio_embd, audio_path):
             #     normalize=True,
             #     range=(-1, 1),
             # )
+        for i in tqdm(range(len(total_audio_embd))):
+            audio_embd = total_audio_embd[i]
+            path = Path(audio_path[i])
             sample, _ = g_ema(
                 [audio_embd.to(device)], truncation=args.truncation, truncation_latent=mean_latent, randomize_noise=False,
-                input_is_latent=True, interpolate_styles=True
+                input_is_latent=True, interpolate_styles=True, num_interpol=5, smoothing=True, coarse_window_length=args.cw, middle_window_length=args.mw,
             )
-            out_path = f"sample/{str(i).zfill(6)}.mp4"
+            out_path = f"sample/{path.stem}_{args.cw}_{args.mw}.mp4"
             write_video(out_path, sample, fps=args.fps, bitrate=args.bitrate, video_codec='h264')
             
             del sample
-            combined_out_path = f"sample/{str(i).zfill(6)}_combined.mp4"
-            cmd = 'ffmpeg -i {} -i {} -c:v copy -c:a aac -strict -2 {}'.format(out_path, audio_path, combined_out_path)
+            torch.cuda.empty_cache()
+            combined_out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_combined.mp4"
+            cmd = 'ffmpeg -i {} -i {} -c:v copy -c:a aac -strict -2 {}'.format(out_path, str(path), combined_out_path)
             subprocess.call(cmd, shell=True)                                     # "Muxing Done
-
+            
 
 if __name__ == "__main__":
     device = "cuda"
@@ -138,16 +176,33 @@ if __name__ == "__main__":
         help="path to the model checkpoint",
     )
     parser.add_argument(
+        "--audio_model",
+        type=str,
+        default="FCN037",
+        help="model code for audio embedding model",
+    )
+    parser.add_argument(
         "--ad_ckpt",
         type=str,
         default="checkpoint_best",
         help="path to the audio model checkpoint",
     )
     parser.add_argument(
-        "--audio_path",
+        "--tf_ckpt",
         type=str,
-        # default="/home/svcapp/userdata/musicai/flo_data/433/090/433090157.m4a",
-        default="/home/svcapp/userdata/musicai/flo_data/433/081/433081542.m4a",
+        default="transfer_FCN037_it20000_lr1e-05.pt",
+        help="path to the transfer model checkpoint",
+    )
+    parser.add_argument(
+        "--audio_path",
+        nargs='*',
+        type=str,
+        default=[
+            "sample/Queen_bohemian.mp3"
+            # "/home/svcapp/userdata/musicai/flo_data/433/090/433090157.m4a",
+        # default="/home/svcapp/userdata/musicai/flo_data/433/081/433081542.m4a",
+        # default="/home/svcapp/userdata/musicai/MSD/1/2/1203820.clip.mp3",
+        ],
         help="path to the model checkpoint",
     )
     parser.add_argument(
@@ -156,10 +211,16 @@ if __name__ == "__main__":
         default=2,
         help="channel multiplier of the generator. config-f = 2, else = 1",
     )
+    parser.add_argument( "--cw", type=int, default=75,
+        help="smoothing window length for coarse layer styles",
+    )
+    parser.add_argument( "--mw", type=int, default=45,
+        help="smoothing window length for middle layer styles",
+    )
     parser.add_argument(
         "--fps",
         type=int,
-        default=21,
+        default=15,
         help="frame per second for video",
     )
     parser.add_argument(
@@ -171,8 +232,9 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
-
-
+    # if isinstance(args.audio_path, str):
+    #     args.audio_path = [args.audio_path]
+    torch.cuda.set_device(0)
     args.latent = 512
     args.n_mlp = 8
 
@@ -194,22 +256,34 @@ if __name__ == "__main__":
     else:
         mean_latent = None
     
-    with open("hparams.dat", "rb") as f:
-        hparams = pickle.load(f)
-    audio_embedder = SiameseNet(hparams)
-
-    audio_checkpoint = torch.load(args.ad_ckpt)
-    checkpoint = torch.load(args.ckpt)
-    audio_embedder.load_state_dict(audio_checkpoint["state_dict"])
-    audio_embd = get_embedding_from_audio(args.audio_path, audio_embedder)
-
-    transfer_net = TransferNet(100,512)
-    transfer_checkpoint = torch.load('transfer.pt')
+    total_audio_embd = []
+    transfer_net = TransferNet(512,512).to('cuda')
+    transfer_checkpoint = torch.load(args.tf_ckpt, map_location='cpu')
     transfer_net.load_state_dict(transfer_checkpoint['state_dict'])
 
-    audio_embd = transfer_net(audio_embd)
+    if "siamese" in args.audio_model:
+        # with open("hparams.dat", "rb") as f:
+        #     hparams = pickle.load(f)
+        hparams = HParams()
+        audio_embedder = SiameseNet(hparams)
+        audio_checkpoint = torch.load(args.ad_ckpt)
+        checkpoint = torch.load(args.ckpt)
+        audio_embedder.load_state_dict(audio_checkpoint["state_dict"])
+        audio_embedder = audio_embedder.to(device)
+        
+    for audio_path in args.audio_path:
+        if "siamese" in args.audio_model:
+            audio_embd = get_embedding_from_audio(audio_path, audio_embedder)
+        else:
+            # audio_embd = extractor.embedding_extractor(audio_path, "FCN037")
+            audio_embd = extractor.get_frame_embeddings(audio_path, "FCN037", 'cuda')
+
+        
+        audio_embd = transfer_net(audio_embd)
+        total_audio_embd.append(audio_embd)
+    torch.cuda.empty_cache()
 
     # audio_data = AudioSegment.from_file(args.audio_path, 'm4a').set_frame_rate(44100).set_channels(1)._data
     # audio_data = np.frombuffer(audio_data, dtype=np.int16) / 32768
 
-    generate(args, g_ema, device, mean_latent, audio_embd[0], args.audio_path)
+    generate(args, g_ema, device, mean_latent, total_audio_embd, args.audio_path)
