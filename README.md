@@ -1,7 +1,7 @@
 # TräumerAI: Dreaming Music with StyleGAN
 
-
-<iframe src="https://drive.google.com/file/d/10FEKgPc4ZwdY5dZNJZG9ZcI5AUJZ3Qrs/preview" width="640" height="480"></iframe>
+Demo video of Bohemian Rhapsody
+<iframe width="640" height="480" src="https://drive.google.com/file/d/10FEKgPc4ZwdY5dZNJZG9ZcI5AUJZ3Qrs/preview"></iframe>
 
 
 ### Samples from converted weights
