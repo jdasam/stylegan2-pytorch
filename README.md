@@ -1,10 +1,8 @@
 # TräumerAI: Dreaming Music with StyleGAN
 
-Demo video of Bohemian Rhapsody
-<iframe width="640" height="480" src="https://drive.google.com/file/d/10FEKgPc4ZwdY5dZNJZG9ZcI5AUJZ3Qrs/preview"></iframe>
+[Demo page](https://jdasam.github.io/traeumerAI_demo/)
 
-
-### Samples from converted weights
+The documentation for this code is in progress
 
 ## License
 The PyTorch implementation of StyleGAN2 is from https://github.com/rosinality/stylegan2-pytorch
