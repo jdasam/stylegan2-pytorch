@@ -46,11 +46,17 @@ def train(args, device):
         embd_size = 512
     else:
         embd_size = 64
-    model = TransferNet(embd_size, args.style_dim).to(device)
+    model = TransferNet(embd_size, args.style_dim)
+    style_stats = torch.load("style_latent_stat.pt")
+    model.bias = torch.nn.Parameter(style_stats['mean'].squeeze(0), requires_grad=False)
+    model.std = torch.nn.Parameter(style_stats['std'].squeeze(0), requires_grad=False)
+    model = model.to(device)
     learning_rate = args.learning_rate
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                  weight_decay=args.weight_decay)
-    loss_fn = torch.nn.MSELoss()
+    # loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.L1Loss()
+
     data = np.load(args.data_path, allow_pickle=True)
     # embs = [audio_embedder.inference_with_audio(x['audio'])[0] for x in data]
     styles = [x['style'] for x in data]
@@ -92,7 +98,7 @@ def train(args, device):
     torch.save({'iteration': i,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'learning_rate': learning_rate}, 'transfer_{}_it{}_lr{}.pt'.format(args.model_code, args.epoch, args.learning_rate))
+            'learning_rate': learning_rate}, 'tf_tanh_L1_{}_it{}_lr{}.pt'.format(args.model_code, args.epoch, args.learning_rate))
     
     
 

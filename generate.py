@@ -133,14 +133,14 @@ def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
             path = Path(audio_path[i])
             sample, _ = g_ema(
                 [audio_embd.to(device)], truncation=args.truncation, truncation_latent=mean_latent, randomize_noise=False,
-                input_is_latent=True, interpolate_styles=True, num_interpol=5, smoothing=True, coarse_window_length=args.cw, middle_window_length=args.mw,
+                input_is_latent=True, interpolate_styles=True, num_interpol=args.fps//args.audio_fps, smoothing=True, coarse_window_length=args.cw, middle_window_length=args.mw,
             )
-            out_path = f"sample/{path.stem}_{args.cw}_{args.mw}.mp4"
+            out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_{args.tf_ckpt}.mp4"
             write_video(out_path, sample, fps=args.fps, bitrate=args.bitrate, video_codec='h264')
             
             del sample
             torch.cuda.empty_cache()
-            combined_out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_combined.mp4"
+            combined_out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_{args.tf_ckpt}_combined.mp4"
             cmd = 'ffmpeg -i {} -i {} -c:v copy -c:a aac -strict -2 {}'.format(out_path, str(path), combined_out_path)
             subprocess.call(cmd, shell=True)                                     # "Muxing Done
             
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tf_ckpt",
         type=str,
-        default="transfer_FCN037_it20000_lr1e-05.pt",
+        default="tf_tanh_L1_FCN037_it30000_lr0.0001.pt",
         help="path to the transfer model checkpoint",
     )
     parser.add_argument(
@@ -217,11 +217,9 @@ if __name__ == "__main__":
     parser.add_argument( "--mw", type=int, default=45,
         help="smoothing window length for middle layer styles",
     )
-    parser.add_argument(
-        "--fps",
-        type=int,
-        default=15,
-        help="frame per second for video",
+    parser.add_argument("--fps", type=int,default=15, help="frame per second for video",
+    )
+    parser.add_argument("--audio_fps", type=int,default=3, help="frame per second for video",
     )
     parser.add_argument(
         "--bitrate",
@@ -237,6 +235,7 @@ if __name__ == "__main__":
     torch.cuda.set_device(0)
     args.latent = 512
     args.n_mlp = 8
+    assert (args.fps / args.audio_fps).is_integer()
 
     g_ema = Generator(
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
@@ -276,7 +275,7 @@ if __name__ == "__main__":
             audio_embd = get_embedding_from_audio(audio_path, audio_embedder)
         else:
             # audio_embd = extractor.embedding_extractor(audio_path, "FCN037")
-            audio_embd = extractor.get_frame_embeddings(audio_path, "FCN037", 'cuda')
+            audio_embd = extractor.get_frame_embeddings(audio_path, "FCN037", args.audio_fps)
 
         
         audio_embd = transfer_net(audio_embd)
