@@ -108,9 +108,12 @@ class TransferNet(nn.Module):
     def __init__(self, in_dim, out_dim, neck_dim=100):
         super(TransferNet, self).__init__()
         self.transfer = nn.Sequential(
-            # nn.Linear(in_dim, out_dim),
-            nn.Linear(in_dim, neck_dim),
-            nn.Linear(neck_dim, out_dim)
+            nn.Linear(in_dim, out_dim),
+            # nn.Linear(in_dim, neck_dim),
+            # nn.Linear(neck_dim, out_dim)
         )
+        self.bias = nn.Parameter(torch.zeros(out_dim), requires_grad=False)
+        self.std = nn.Parameter(torch.zeros(out_dim),requires_grad=False)
     def forward(self, audio_embedding):
-        return self.transfer(audio_embedding)
+        # return self.transfer(audio_embedding)
+        return nn.functional.tanh(self.transfer(audio_embedding)) * 2 * self.std + self.bias

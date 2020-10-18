@@ -75,7 +75,6 @@ def get_embedding_from_audio(path, model, target_fps=3):
         file_format = 'm4a'
     song = AudioSegment.from_file(path, file_format).set_frame_rate(16000).set_channels(1)._data
     audio = np.frombuffer(song, dtype=np.int16) / 32768
-    
 
     view_size = 130304
     audio_batch_size = 100
@@ -111,7 +110,17 @@ def get_embedding_from_audio(path, model, target_fps=3):
 
 
 def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
-
+    num_interpol = args.fps//args.audio_fps
+    c_window_length = args.cw_sec * args.fps
+    m_window_length = args.mw_sec * args.fps
+    f_window_length = args.fw_sec * args.fps
+    if c_window_length % 2 == 0:
+        c_window_length += 1
+    if m_window_length % 2 == 0:
+        m_window_length += 1
+    if f_window_length % 2 == 0:
+        f_window_length += 1
+    
     with torch.no_grad():
         g_ema.eval()
         # for i in tqdm(range(args.pics)):
@@ -133,14 +142,15 @@ def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
             path = Path(audio_path[i])
             sample, _ = g_ema(
                 [audio_embd.to(device)], truncation=args.truncation, truncation_latent=mean_latent, randomize_noise=False,
-                input_is_latent=True, interpolate_styles=True, num_interpol=args.fps//args.audio_fps, smoothing=True, coarse_window_length=args.cw, middle_window_length=args.mw,
+                input_is_latent=True, interpolate_styles=True, num_interpol=num_interpol, smoothing=True, 
+                coarse_window_length=c_window_length, middle_window_length=m_window_length, fine_window_length=f_window_length
             )
-            out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_{args.tf_ckpt}.mp4"
+            out_path = f"sample/{path.stem}_{args.cw_sec}_{args.mw_sec}_{args.tf_ckpt}.mp4"
             write_video(out_path, sample, fps=args.fps, bitrate=args.bitrate, video_codec='h264')
             
             del sample
             torch.cuda.empty_cache()
-            combined_out_path = f"sample/{path.stem}_{args.cw}_{args.mw}_{args.tf_ckpt}_combined.mp4"
+            combined_out_path = f"sample/{path.stem}_{args.cw_sec}_{args.mw_sec}_{args.tf_ckpt}_combined.mp4"
             cmd = 'ffmpeg -i {} -i {} -c:v copy -c:a aac -strict -2 {}'.format(out_path, str(path), combined_out_path)
             subprocess.call(cmd, shell=True)                                     # "Muxing Done
             
@@ -198,6 +208,7 @@ if __name__ == "__main__":
         nargs='*',
         type=str,
         default=[
+            # "sample/Queen_bohemian.mp3"
             "sample/Queen_bohemian.mp3"
             # "/home/svcapp/userdata/musicai/flo_data/433/090/433090157.m4a",
         # default="/home/svcapp/userdata/musicai/flo_data/433/081/433081542.m4a",
@@ -211,11 +222,14 @@ if __name__ == "__main__":
         default=2,
         help="channel multiplier of the generator. config-f = 2, else = 1",
     )
-    parser.add_argument( "--cw", type=int, default=75,
+    parser.add_argument( "--cw_sec", type=int, default=5,
         help="smoothing window length for coarse layer styles",
     )
-    parser.add_argument( "--mw", type=int, default=45,
+    parser.add_argument( "--mw_sec", type=int, default=2,
         help="smoothing window length for middle layer styles",
+    )
+    parser.add_argument( "--fw_sec", type=int, default=0.333,
+        help="smoothing window length for fine layer styles",
     )
     parser.add_argument("--fps", type=int,default=15, help="frame per second for video",
     )
