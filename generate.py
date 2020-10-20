@@ -114,10 +114,10 @@ def get_embedding_from_audio(path, model, target_fps=3):
 
 
 def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
-    num_interpol = args.fps//args.audio_fps
-    c_window_length = args.cw_sec * args.fps
-    m_window_length = args.mw_sec * args.fps
-    f_window_length = args.fw_sec * args.fps
+    num_interpol = int(args.fps//args.audio_fps)
+    c_window_length = int(args.cw_sec * args.fps)
+    m_window_length = int(args.mw_sec * args.fps)
+    f_window_length = int(args.fw_sec * args.fps)
     if c_window_length % 2 == 0:
         c_window_length += 1
     if m_window_length % 2 == 0:
@@ -226,13 +226,13 @@ if __name__ == "__main__":
         default=2,
         help="channel multiplier of the generator. config-f = 2, else = 1",
     )
-    parser.add_argument( "--cw_sec", type=int, default=5,
+    parser.add_argument( "--cw_sec", type=float, default=5,
         help="smoothing window length for coarse layer styles",
     )
-    parser.add_argument( "--mw_sec", type=int, default=2,
+    parser.add_argument( "--mw_sec", type=float, default=2,
         help="smoothing window length for middle layer styles",
     )
-    parser.add_argument( "--fw_sec", type=int, default=0.333,
+    parser.add_argument( "--fw_sec", type=float, default=0.333,
         help="smoothing window length for fine layer styles",
     )
     parser.add_argument("--fps", type=int,default=15, help="frame per second for video",
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--bitrate",
-        type=int,
+        type=float,
         default=1e7,
         help="bitrate for video encoding",
     )
