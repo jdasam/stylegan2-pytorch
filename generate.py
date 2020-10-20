@@ -1,19 +1,18 @@
 import argparse
 from os import write
+from librosa.filters import mel
 
 import torch
-from torchvision import utils
 from model import Generator
 from audio_model import SiameseNet, TransferNet, HParams
 from tqdm import tqdm
 import av
-import pickle
 from pydub import AudioSegment
 import librosa
 import numpy as np
 import subprocess
 import math
-from Music_DeepEmbedding_Extractor import extractor
+from music_embedder import extractor
 from pathlib import Path
 
 # from mhmovie.code import movie, music
@@ -87,8 +86,10 @@ def get_embedding_from_audio(path, model, target_fps=3):
     model = model.to('cuda')
     model.eval() 
     total_embeddings = []
+
+    mel_basis = librosa.filters.mel(16000, n_fft=512, n_mels=48)
+
     with torch.no_grad():
-        
     # _, embeddings = model(audio_input)
         for batch_i in range(num_batch):
             start_idx = int(batch_i * audio_batch_size * 16000/target_fps)
@@ -98,10 +99,13 @@ def get_embedding_from_audio(path, model, target_fps=3):
                 num_segments = audio_batch_size
             batch_audio = torch.stack([audio[0,start_idx+int(i*16000/target_fps):start_idx+int(i*16000/target_fps)+view_size ] for i in range(num_segments) ])
             # mel = torchaudio.
+            spec = librosa.stft(batch_audio, n_fft=512, hop_length=256, win_length=512, window='hann')
+            mel_spec = np.dot(mel_basis, np.abs(spec))
+            mel_spec = mel_spec / 80 + 0.5
+
             embeddings = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda'))
             total_embeddings.append(embeddings[:,0,:])
 
-    mel = librosa.feature.melspectrogram(y=decoded, sr=16000, n_fft=512, hop_length=256, n_mels=48)
 
     with torch.no_grad():
         model.eval()
@@ -233,7 +237,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--fps", type=int,default=15, help="frame per second for video",
     )
-    parser.add_argument("--audio_fps", type=int,default=3, help="frame per second for video",
+    parser.add_argument("--audio_fps", type=int,default=3, help="number of embeddings per second for audio embedding",
     )
     parser.add_argument(
         "--bitrate",
