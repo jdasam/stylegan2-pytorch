@@ -1,0 +1,3 @@
+[submodule "music_embedder"]
+	path = music_embedder
+	url = https://github.com/jdasam/music_embedder.git
