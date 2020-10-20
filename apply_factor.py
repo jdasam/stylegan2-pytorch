@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     trunc = g.mean_latent(4096)
 
-    latent = torch.randn(args.n_sample, 512, device=args.device)
+    latent = torch.randn(args.n_sample, 512 * 2, device=args.device)
     latent = g.get_latent(latent)
 
     direction = args.degree * eigvec[:, args.index].unsqueeze(0)

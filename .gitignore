@@ -131,3 +131,6 @@ dmypy.json
 wandb/
 *.lmdb/
 *.pkl
+
+sample/
+old_files/

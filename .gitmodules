@@ -1,3 +1,0 @@
-[submodule "music_embedder"]
-	path = music_embedder
-	url = https://github.com/jdasam/Music_DeepEmbedding_Extractor.git
