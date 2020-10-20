@@ -1,8 +1,9 @@
 # TräumerAI: Dreaming Music with StyleGAN
 
 [Demo page](https://jdasam.github.io/traeumerAI_demo/)
+![image](https://jdasam.github.io/traeumerAI_demo/assets/img/main_2col.png)
 
-The documentation for this code is in progress
+This is repository for __TräumerAI: Dreaming Music with StyleGAN__, which is submitted to [NeurIPS 2020 Workshop for Creativity and Design](https://neurips2020creativity.github.io/)
 
 
 ## Requirements
@@ -16,6 +17,7 @@ These are required Python libraries
 + numba==0.48
 + torchaudio==0.6.0
 + ninja==1.10.0.post2
++ av==8.0.2
 
 During the video generation, ffmpeg command is used. If ffmpeg is not installed, please install ffmpeg as follow:
 
@@ -24,9 +26,13 @@ $ sudo apt-get update
 $ sudo apt-get install ffmpeg 
 ```
 
+This repository uses submodule for music embedder.
+```
+$ git submodule init
+```
 
 ## Usage
-```$ python3 generate.py --audio_path sample/song_a.mp3 sample/song_b.mp3 --fps=30 --audio_fps=5 --bitrate=1e7```
+```$ python3 generate.py --audio_path sample/song_a.mp3 sample/song_b.mp3 --fps=30 --audio_fps=5```
 
 + --fps: frame per second of the generated video
 + --bitrate: bitrate (video quality) of the generated video
@@ -38,8 +44,6 @@ The generated video will be saved in sample/
 The weights for the WikiArt pre-trained model is available [here](https://drive.google.com/file/d/1MeTjkwPNJi0LKkdce8G8hY5MDWwYaLOK/view?usp=sharing).
 The origin source is https://github.com/pbaylies/stylegan2 which is converted from TensorFlow to PyTorch
 
-
-## Generation
 
 
 ## License
