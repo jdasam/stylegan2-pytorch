@@ -104,6 +104,13 @@ class SiameseNet(nn.Module):
         mel = librosa.feature.melspectrogram(y=input_audio, sr=16000, n_fft=512, hop_length=256, n_mels=48)
         return self.inference(torch.Tensor(mel).to('cuda'))
 
+    def infer_mid_level(self, input_mel):
+        layers = self.cnn.conv_module
+        x = input_mel
+        for layer in layers[:7]:
+            x = layer(x)
+        return torch.nn.functional.max_pool1d(x, x.shape[-1])
+
 class TransferNet(nn.Module):
     def __init__(self, in_dim, out_dim, neck_dim=100):
         super(TransferNet, self).__init__()
