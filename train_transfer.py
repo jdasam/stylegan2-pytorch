@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import librosa
 from audio_model import SiameseNet, TransferNet, HParams
-from Music_DeepEmbedding_Extractor import extractor
+from music_embedder import extractor
 
 
 def load_audio_model(args):
@@ -71,12 +71,16 @@ def train(args, device):
     # embs = torch.Tensor(embs).to(device)
     
     if "siamese" in args.model_code:
-        mels = [librosa.feature.melspectrogram(y=x, sr=16000, n_fft=512, hop_length=256, n_mels=48) for x in audios]
-        mels = torch.Tensor(mels).to(device)
+        mel_basis = librosa.filters.mel(16000, n_fft=512, n_mels=48)
+        spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in audios ])
+        mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
+        mel_spec = mel_spec / 80 + 0.5
+
+        mels = torch.Tensor(mel_spec).to(device)
         # audio_embedder = load_audio_model(args).to(device)
         audio_embedder.eval()
         with torch.no_grad():
-            embs = audio_embedder.cnn.fwd_wo_pool(mels)
+            embs = audio_embedder.infer_mid_level(mels)
         # embs = torch.Tensor(embs).to(device)
     else:
         audios = torch.Tensor(audios)
