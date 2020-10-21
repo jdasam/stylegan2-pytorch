@@ -62,12 +62,12 @@ def get_embedding_from_audio(path, model, target_fps=3):
     song = AudioSegment.from_file(path, file_format).set_frame_rate(16000).set_channels(1)._data
     audio = np.frombuffer(song, dtype=np.int16) / 32768
 
-    view_size = 130304
+    view_size = 103680
     audio_batch_size = 100
-    dummy = torch.zeros((1, audio.shape[1] + view_size *2))
-    dummy[:,view_size//2:view_size//2+audio.shape[1]] = audio
+    dummy = np.zeros((audio.shape[0] + view_size *2))
+    dummy[view_size//2:view_size//2+audio.shape[0]] =  audio
     audio = dummy
-    num_frame = math.ceil(audio.shape[1]/ 16000 * target_fps)
+    num_frame = math.ceil( (audio.shape[0]-view_size)/ 16000 * target_fps)
     num_batch = math.ceil(num_frame / audio_batch_size)
 
     model = model.to('cuda')
@@ -84,20 +84,20 @@ def get_embedding_from_audio(path, model, target_fps=3):
                 num_segments = num_frame % audio_batch_size
             else:
                 num_segments = audio_batch_size
-            batch_audio = torch.stack([audio[0,start_idx+int(i*16000/target_fps):start_idx+int(i*16000/target_fps)+view_size ] for i in range(num_segments) ])
+            batch_audio = np.stack([audio[start_idx+int(i*16000/target_fps):start_idx+int(i*16000/target_fps)+view_size ] for i in range(num_segments) ])
             # mel = torchaudio.
-            spec = librosa.stft(batch_audio, n_fft=512, hop_length=256, win_length=512, window='hann')
-            mel_spec = np.dot(mel_basis, np.abs(spec))
+            spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in batch_audio ])
+            mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
             mel_spec = mel_spec / 80 + 0.5
 
-            embeddings = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda'))
-            total_embeddings.append(embeddings[:,0,:])
+            embeddings = model.infer_mid_level(torch.Tensor(mel_spec).to('cuda'))
+            total_embeddings.append(embeddings[:,:,0])
 
 
-    with torch.no_grad():
-        model.eval()
-        embedd = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda').unsqueeze(0))
-    return embedd
+    # with torch.no_grad():
+    #     model.eval()
+    #     embedd = model.cnn.fwd_wo_pool(torch.Tensor(mel).to('cuda').unsqueeze(0))
+    return torch.cat(total_embeddings)
 
 
 def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
@@ -170,8 +170,7 @@ if __name__ == "__main__":
         default=4096,
         help="number of vectors to calculate mean for the truncation",
     )
-    parser.add_argument(
-        "--ckpt",
+    parser.add_argument("--ckpt",
         type=str,
         default="network-snapshot-012052.pt",
         help="path to the model checkpoint",
@@ -201,9 +200,6 @@ if __name__ == "__main__":
         default=[
             # "sample/Queen_bohemian.mp3"
             "sample/Queen_bohemian.mp3"
-            # "/home/svcapp/userdata/musicai/flo_data/433/090/433090157.m4a",
-        # default="/home/svcapp/userdata/musicai/flo_data/433/081/433081542.m4a",
-        # default="/home/svcapp/userdata/musicai/MSD/1/2/1203820.clip.mp3",
         ],
         help="path to the model checkpoint",
     )
@@ -277,7 +273,7 @@ if __name__ == "__main__":
         
     for audio_path in args.audio_path:
         if "siamese" in args.audio_model:
-            audio_embd = get_embedding_from_audio(audio_path, audio_embedder)
+            audio_embd = get_embedding_from_audio(audio_path, audio_embedder, args.audio_fps)
         else:
             # audio_embd = extractor.embedding_extractor(audio_path, "FCN037")
             audio_embd = extractor.get_frame_embeddings(audio_path, "FCN037", args.audio_fps)
