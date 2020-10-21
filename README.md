@@ -35,11 +35,14 @@ $ git submodule init
 ```$ python3 generate.py --audio_path sample/song_a.mp3 sample/song_b.mp3 --fps=30 --audio_fps=5```
 
 + --audio_path: input audio file for generating video. several files can be used as inputs
-+ --fps: frame per second of the generated video
-+ --bitrate: bitrate (video quality) of the generated video
-+ --audio_fps: frame per second for audio embedding (Assert fps % audio_fps == 0)
++ --fps: frame per second of the generated video. default=15
++ --bitrate: bitrate (video quality) of the generated video. default=1e7
++ --audio_fps: frame per second for audio embedding (Assert fps % audio_fps == 0). default==3
 
 The generated video will be saved in sample/ .
+
+We have tested input files in m4a and mp3.
+Currently __only 16 bit audio file__ is supported. Otherwise, the audio will not be decoded correctly.
 
 
 ## Pre-trained model
