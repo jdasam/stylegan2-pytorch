@@ -17,19 +17,6 @@ from pathlib import Path
 
 # from mhmovie.code import movie, music
 
-
-def interpolate(sample_z, num_interpol=10):
-    sample_a = sample_z[0,:]
-    sample_b = sample_z[-1,:]
-    diff = sample_b - sample_a
-    new_samples = torch.zeros((num_interpol+2, sample_a.shape[0]),device=sample_a.device)
-    for i in range(1,num_interpol+1):
-        new_samples[i,:] = sample_a + i * diff/num_interpol
-    new_samples[0,:] = sample_a
-    new_samples[-1,:] = sample_b
-
-    return new_samples
-
 def write_video(filename, video_array, fps, bitrate, video_codec='libx264', options=None):
     """
     Writes a 4d tensor in [T, H, W, C] format in a video file
