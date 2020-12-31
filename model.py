@@ -10,6 +10,7 @@ from torch.autograd import Function
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 from tqdm import tqdm
+from smoothing_utils import hierarchical_smoothing
 
 
 class PixelNorm(nn.Module):
@@ -764,24 +765,3 @@ def cross_generation(a_style, b_style):
 
     return new_samples
 
-def hierarchical_smoothing(latent, cw=75, mw=45, fw=7):
-    coarse_weight = torch.eye(latent.shape[2]).unsqueeze(-1).repeat(1,1,cw).to('cuda') / cw
-    middle_weight = torch.eye(latent.shape[2]).unsqueeze(-1).repeat(1,1,mw).to('cuda') / mw
-    fine_weight = torch.eye(latent.shape[2]).unsqueeze(-1).repeat(1,1,fw).to('cuda') / fw
-    
-    coarse_input = latent[:,0:6,:].permute(1,2,0)
-    coarse_input = torch.nn.functional.pad(coarse_input, (cw//2, cw//2), mode='reflect')
-
-    middle_input = latent[:,6:12,:].permute(1,2,0)
-    middle_input = torch.nn.functional.pad(middle_input, (mw//2, mw//2), mode='reflect')
-
-    fine_input = latent[:,12:,:].permute(1,2,0)
-    fine_input = torch.nn.functional.pad(fine_input, (fw//2, fw//2), mode='reflect')
-
-    coarse = torch.nn.functional.conv1d(coarse_input, coarse_weight, bias=None, stride=1)
-    middle = torch.nn.functional.conv1d(middle_input, middle_weight, bias=None, stride=1)
-    fine = torch.nn.functional.conv1d(fine_input, fine_weight, bias=None, stride=1)
-    latent[:,0:6,:] = coarse.permute(2,0,1)
-    latent[:,6:12,:] = middle.permute(2,0,1)
-    latent[:,12:,:] = fine.permute(2,0,1)
-    return latent

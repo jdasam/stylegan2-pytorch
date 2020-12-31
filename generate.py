@@ -86,9 +86,11 @@ def get_embedding_from_audio(path, model, target_fps=3):
                 num_segments = audio_batch_size
             batch_audio = np.stack([audio[start_idx+int(i*16000/target_fps):start_idx+int(i*16000/target_fps)+view_size ] for i in range(num_segments) ])
             # mel = torchaudio.
-            spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in batch_audio ])
-            mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
-            mel_spec = mel_spec / 80 + 0.5
+            mel_spec = np.asarray([librosa.feature.melspectrogram(x, sr=16000,n_mels=48, n_fft=512, hop_length=256, win_length=512, window='hann') for x in batch_audio ])
+
+            # spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in batch_audio ])
+            # mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
+            # mel_spec = mel_spec / 80 + 0.5
 
             embeddings = model.infer_mid_level(torch.Tensor(mel_spec).to('cuda'))
             total_embeddings.append(embeddings[:,:,0])
@@ -133,7 +135,7 @@ def generate(args, g_ema, device, mean_latent, total_audio_embd, audio_path):
             path = Path(audio_path[i])
             sample, _ = g_ema(
                 [audio_embd.to(device)], truncation=args.truncation, truncation_latent=mean_latent, randomize_noise=False,
-                input_is_latent=True, interpolate_styles=True, num_interpol=num_interpol, smoothing=True, 
+                input_is_latent=True, interpolate_styles=True, num_interpol=num_interpol, smoothing=True, to_cpu=True,
                 coarse_window_length=c_window_length, middle_window_length=m_window_length, fine_window_length=f_window_length
             )
             out_path = f"sample/{path.stem}_{args.cw_sec}_{args.mw_sec}_{args.tf_ckpt}.mp4"
@@ -257,7 +259,12 @@ if __name__ == "__main__":
         mean_latent = None
     
     total_audio_embd = []
-    transfer_net = TransferNet(512,512).to('cuda')
+    if args.audio_model == "FCN037":
+        transfer_net = TransferNet(512,512).to('cuda')
+    elif 'siamese' in args.audio_model:
+        transfer_net = TransferNet(128,512).to('cuda')
+    else:
+        transfer_net = TransferNet(256,512).to('cuda')
     transfer_checkpoint = torch.load(args.tf_ckpt, map_location='cpu')
     transfer_net.load_state_dict(transfer_checkpoint['state_dict'])
 
@@ -276,7 +283,7 @@ if __name__ == "__main__":
             audio_embd = get_embedding_from_audio(audio_path, audio_embedder, args.audio_fps)
         else:
             # audio_embd = extractor.embedding_extractor(audio_path, "FCN037")
-            audio_embd = extractor.get_frame_embeddings(audio_path, "FCN037", args.audio_fps)
+            audio_embd = extractor.get_frame_embeddings(audio_path, args.audio_model, args.audio_fps)
 
         
         audio_embd = transfer_net(audio_embd)

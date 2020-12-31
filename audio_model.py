@@ -82,6 +82,7 @@ class SiameseNet(nn.Module):
         super(SiameseNet, self).__init__()
         self.cnn = DeepCNN(hparams)
         self.out_size = hparams.out_size
+        self.conv_size = hparams.conv_size
         # self.similarity_fn = torch.nn.CosineSimilarity(1, eps=1e-6)
 
     def forward(self, anchor, positive_sample, negative_sample):
@@ -104,18 +105,24 @@ class SiameseNet(nn.Module):
         mel = librosa.feature.melspectrogram(y=input_audio, sr=16000, n_fft=512, hop_length=256, n_mels=48)
         return self.inference(torch.Tensor(mel).to('cuda'))
 
-    def infer_mid_level(self, input_mel):
+    def infer_mid_level(self, input_mel, max_pool=True):
         layers = self.cnn.conv_module
         x = input_mel
         for layer in layers[:7]:
             x = layer(x)
-        return torch.nn.functional.max_pool1d(x, x.shape[-1])
+        if max_pool:
+            return torch.nn.functional.max_pool1d(x, x.shape[-1])
+        else:
+            return x
 
 class TransferNet(nn.Module):
     def __init__(self, in_dim, out_dim, neck_dim=100):
         super(TransferNet, self).__init__()
         self.transfer = nn.Sequential(
             nn.Linear(in_dim, out_dim),
+            # nn.Linear(out_dim, out_dim)
+            # nn.ReLU(),
+            # nn.Linear(out_dim, out_dim),
             # nn.Linear(in_dim, neck_dim),
             # nn.Linear(neck_dim, out_dim)
         )

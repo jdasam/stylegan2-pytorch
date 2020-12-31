@@ -8,7 +8,6 @@ from music_embedder import extractor
 
 
 def load_audio_model(args):
-    
     # with open("hparams.dat", "rb") as f:
     #     hparams = pickle.load(f)
     hparams = HParams()
@@ -24,7 +23,7 @@ def load_audio_model_and_get_embedding(audio, model_types):
     audio = extractor.make_frames_of_batch(audio, input_length, target_fps=0.5).view(-1, input_length)
     # audio = extractor.make_audio_batch(audio, input_length)
 
-    state_dict = torch.load("Music_DeepEmbedding_Extractor/"+checkpoint_path, map_location=torch.device('cpu'))
+    state_dict = torch.load("music_embedder/"+checkpoint_path, map_location=torch.device('cpu'))
 
     new_state_map = {model_key: model_key.split("model.")[1] for model_key in state_dict.get("state_dict").keys()}
     new_state_dict = {new_state_map[key]: value for (key, value) in state_dict.get("state_dict").items() if key in new_state_map.keys()}
@@ -34,16 +33,23 @@ def load_audio_model_and_get_embedding(audio, model_types):
     model = model.to('cuda')
 
     with torch.no_grad():
-        model.eval() 
-        embeddings = model.get_emb(audio)
+        model.eval()
+        if "CPC" in model_types:
+            embeddings = torch.zeros(audio.shape[0], 256)
+            for i in range(0, audio.shape[0], 100):
+                _, embeddings[i:i+100] =model.get_emb(audio[i:i+100])
+        else:
+            embeddings = model.get_emb(audio)
     return embeddings
 
 def train(args, device):
     if "siamese" in args.model_code:
         audio_embedder = load_audio_model(args).to(device)
-        embd_size = audio_embedder.out_size
+        embd_size = audio_embedder.conv_size
     elif "FCN037" in args.model_code:
         embd_size = 512
+    elif "CPC" in args.model_code:
+        embd_size = 256
     else:
         embd_size = 64
     model = TransferNet(embd_size, args.style_dim)
@@ -71,16 +77,18 @@ def train(args, device):
     # embs = torch.Tensor(embs).to(device)
     
     if "siamese" in args.model_code:
-        mel_basis = librosa.filters.mel(16000, n_fft=512, n_mels=48)
-        spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in audios ])
-        mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
+        # mel_basis = librosa.filters.mel(16000, n_fft=512, n_mels=48)
+        # spec = np.asarray([librosa.stft(x, n_fft=512, hop_length=256, win_length=512, window='hann') for x in audios ])
+        # mel_spec = np.dot(mel_basis, librosa.core.amplitude_to_db(np.abs(spec)).transpose(2,1,0)).transpose(2,0,1)
+        # mel_spec = np.dot(mel_basis, np.abs(spec.transpose(2,1,0))).transpose(2,0,1)
+        mel_spec = np.asarray([librosa.feature.melspectrogram(x, sr=16000,n_mels=48, n_fft=512, hop_length=256, win_length=512, window='hann') for x in audios ])
         mel_spec = mel_spec / 80 + 0.5
 
         mels = torch.Tensor(mel_spec).to(device)
         # audio_embedder = load_audio_model(args).to(device)
         audio_embedder.eval()
         with torch.no_grad():
-            embs = audio_embedder.infer_mid_level(mels)
+            embs = audio_embedder.infer_mid_level(mels, max_pool=False).permute(0,2,1)
         # embs = torch.Tensor(embs).to(device)
     else:
         audios = torch.Tensor(audios)
