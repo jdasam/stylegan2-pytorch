@@ -54,6 +54,7 @@ def train(args, device):
         embd_size = 64
     model = TransferNet(embd_size, args.style_dim)
     style_stats = torch.load("style_latent_stat.pt")
+    # style_stats = torch.load("ocean_image_stat_half_std.pt")
     model.bias = torch.nn.Parameter(style_stats['mean'].squeeze(0), requires_grad=False)
     model.std = torch.nn.Parameter(style_stats['std'].squeeze(0), requires_grad=False)
     model = model.to(device)
@@ -66,7 +67,10 @@ def train(args, device):
     data = np.load(args.data_path, allow_pickle=True)
     # embs = [audio_embedder.inference_with_audio(x['audio'])[0] for x in data]
     styles = [x['style'] for x in data]
-    audios = [librosa.core.resample(x['audio'], 44100, 16000) for x in data]
+    audios = [x['audio'] for x in data]
+    # audios = [librosa.core.resample(x['audio'], 44100, 16000) for x in data]
+
+
     # mels = [librosa.feature.melspectrogram(y=x, sr=16000, n_fft=512, hop_length=256, n_mels=48) for x in audios]
     # mels = torch.Tensor(mels).to(device)
     # audio_embedder = load_audio_model(args).to(device)
@@ -112,8 +116,6 @@ def train(args, device):
             'optimizer': optimizer.state_dict(),
             'learning_rate': learning_rate}, 'tf_tanh_L1_{}_it{}_lr{}.pt'.format(args.model_code, args.epoch, args.learning_rate))
     
-    
-
 
 if __name__ == "__main__":
     device = "cuda"
@@ -135,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_path",
         type=str,
-        default="label_data.npy",
+        default="label_data_with_16kHz_audio.npy",
         help="label pair path",
     )
     # torch.cuda.set_device(1)
