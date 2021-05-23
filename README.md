@@ -49,6 +49,8 @@ Currently __only 16 bit audio file__ is supported. Otherwise, the audio will not
 The weights for the WikiArt pre-trained model is available [here](https://drive.google.com/file/d/1MeTjkwPNJi0LKkdce8G8hY5MDWwYaLOK/view?usp=sharing).
 The origin source is https://github.com/pbaylies/stylegan2 which is converted from TensorFlow to PyTorch
 
+## Labeling Data
+The npy data of 100 pairs of music clip and selected image among generation is available [here](https://drive.google.com/file/d/1vYXMKGgwqAXncAAPr5iUxKPqlM0-52fT/view?usp=sharing)
 
 
 ## License
